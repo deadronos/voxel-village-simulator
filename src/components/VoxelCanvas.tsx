@@ -71,7 +71,7 @@ export const VoxelCanvas: React.FC<VoxelCanvasProps> = ({
     windmillSails: THREE.Group | null;
   } | null>(null);
 
-  const [dragState, setDragState] = useState<{ isDragging: boolean; startX: number; startY: number } | null>(null);
+  const dragStateRef = useRef<{ isDragging: boolean; startX: number; startY: number } | null>(null);
 
   // Sync latest engine ref
   useEffect(() => {
@@ -762,7 +762,7 @@ export const VoxelCanvas: React.FC<VoxelCanvasProps> = ({
     if (!ctx) return;
 
     // Skip drag rotations
-    if (dragState && dragState.isDragging) return;
+    if (dragStateRef.current && dragStateRef.current.isDragging) return;
 
     // Calculate normalized device coordinates
     const rect = ctx.renderer.domElement.getBoundingClientRect();
@@ -911,35 +911,35 @@ export const VoxelCanvas: React.FC<VoxelCanvasProps> = ({
 
   // --- Custom flying observer camera drag controls ---
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Only drag with left or right click
-    setDragState({
+    dragStateRef.current = {
       isDragging: false,
       startX: e.clientX,
       startY: e.clientY
-    });
+    };
   };
 
   const handleGlobalMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!dragState) return;
-    const deltaX = e.clientX - dragState.startX;
-    const deltaY = e.clientY - dragState.startY;
+    const drag = dragStateRef.current;
+    if (!drag) return;
+    const deltaX = e.clientX - drag.startX;
+    const deltaY = e.clientY - drag.startY;
 
-    // Threshold check
-    const isDrag = Math.sqrt(deltaX * deltaX + deltaY * deltaY) > 5;
+    // Threshold check: drag if we already started dragging or exceeded 5px threshold
+    const isDrag = drag.isDragging || Math.sqrt(deltaX * deltaX + deltaY * deltaY) > 5;
     
     if (isDrag) {
-      setDragState({
+      dragStateRef.current = {
         isDragging: true,
         startX: e.clientX,
         startY: e.clientY
-      });
+      };
 
       const ctx = contextRef.current;
       if (!ctx) return;
 
-      // Adjust angles corresponding to motion
-      ctx.cameraOrbit.theta -= deltaX * 0.007;
-      ctx.cameraOrbit.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.01, ctx.cameraOrbit.phi - deltaY * 0.007));
+      // Adjust angles corresponding to motion (using a slightly reduced constant for butter smooth motion)
+      ctx.cameraOrbit.theta -= deltaX * 0.005;
+      ctx.cameraOrbit.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.01, ctx.cameraOrbit.phi - deltaY * 0.005));
 
       const x = ctx.orbitalTarget.x + ctx.cameraOrbit.radius * Math.sin(ctx.cameraOrbit.phi) * Math.sin(ctx.cameraOrbit.theta);
       const y = ctx.orbitalTarget.y + ctx.cameraOrbit.radius * Math.cos(ctx.cameraOrbit.phi);
@@ -950,7 +950,18 @@ export const VoxelCanvas: React.FC<VoxelCanvasProps> = ({
   };
 
   const handleMouseUp = () => {
-    setDragState(null);
+    if (dragStateRef.current && dragStateRef.current.isDragging) {
+      // Invalidate starting coordinates but keep briefly so click event doesn't register as a block action
+      const drag = dragStateRef.current;
+      drag.startX = -9999;
+      setTimeout(() => {
+        if (dragStateRef.current === drag) {
+          dragStateRef.current = null;
+        }
+      }, 50);
+    } else {
+      dragStateRef.current = null;
+    }
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {

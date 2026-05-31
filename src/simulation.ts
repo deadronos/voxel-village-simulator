@@ -130,11 +130,13 @@ export class SimulationEngine {
 
     // Build Cottage 1 (Farmer & Miller Home)
     // Position: x = 15..19, z = 15..19
-    this.buildHouse(15, 15, 4, 3, 4, BlockType.BRICK, BlockType.LEAVES, { x: 16, y: 2, z: 15 });
+    this.buildHouse(15, 15, 4, 3, 4, BlockType.BRICK, BlockType.LEAVES, { x: 16, y: 2, z: 16 });
+    this.grid[getIndex(17, 2, 17)] = BlockType.BED;
 
     // Build Cottage 2 (Guard & Builder Home)
     // Position: x = 8..12, z = 16..20
-    this.buildHouse(8, 16, 4, 3, 4, BlockType.WOOD, BlockType.LEAVES, { x: 10, y: 2, z: 16 });
+    this.buildHouse(8, 16, 4, 3, 4, BlockType.WOOD, BlockType.LEAVES, { x: 9, y: 2, z: 18 });
+    this.grid[getIndex(10, 2, 17)] = BlockType.BED;
 
     // Build Guard Tower
     // Coordinate: x = 3, z = 20
@@ -308,7 +310,7 @@ export class SimulationEngine {
         path: [],
         energy: 100,
         inventory: { wheat: 0, flour: 0, bricks: 0 },
-        assignedBed: { x: 18, y: 2, z: 18 }, // Bed 2 Cottage 1
+        assignedBed: { x: 17, y: 2, z: 17 }, // Bed 2 Cottage 1
         assignedWorkplace: { x: 18, y: 2, z: 5 }, // Grinder block at windmill center
         thought: 'Checking if the wind is optimal...',
         speed: 0.9,
@@ -326,7 +328,7 @@ export class SimulationEngine {
         path: [],
         energy: 100,
         inventory: { wheat: 0, flour: 0, bricks: 0 },
-        assignedBed: { x: 11, y: 2, z: 18 }, // Cottage 2
+        assignedBed: { x: 10, y: 2, z: 17 }, // Cottage 2
         assignedWorkplace: { x: 4, y: 7, z: 21 }, // Top of guard tower
         thought: 'All clear on the horizon!',
         speed: 1.1,
@@ -620,6 +622,16 @@ export class SimulationEngine {
       v.thought = `Phew! Completely exhausted, heading to bed early.`;
       v.targetPosition = v.assignedBed;
       v.emotion = 'tired';
+      
+      if (this.dist3D(v.position, v.assignedBed) < 1.1) {
+        v.state = VillagerState.SLEEPING;
+        v.position = { ...v.assignedBed }; // Snap to bed
+        v.thought = 'Zzz... Sleeping early due to exhaustion.';
+      } else {
+        this.setPathToTarget(v, v.assignedBed);
+      }
+      this.advancePathing(v);
+      return;
     }
 
     // Nighttime Sleep schedule: Bed time!
@@ -635,8 +647,13 @@ export class SimulationEngine {
           this.setPathToTarget(v, v.assignedBed);
         }
       }
+      this.advancePathing(v);
       return; // Stop other behaviors
     } else if (v.state === VillagerState.SLEEPING) {
+      if (v.energy < 100) {
+        // Keep sleeping during the day if energy not fully restored
+        return;
+      }
       // Wake up time!
       v.state = VillagerState.WANDERING;
       v.thought = 'Yawn! Rise and shine village is beautiful!';
@@ -766,7 +783,7 @@ export class SimulationEngine {
     if (v.inventory.flour >= 3) {
       v.state = VillagerState.DELIVERING;
       v.thought = 'Placing fresh flour bags in the pantry storage chest.';
-      const deliveryTarget = { x: 16, y: 2, z: 15 }; // Inside cottage
+      const deliveryTarget = { x: 16, y: 2, z: 16 }; // Inside cottage
       
       if (this.dist3D(v.position, deliveryTarget) < 1.1) {
         this.stats.flourMilled += v.inventory.flour;
@@ -871,7 +888,11 @@ export class SimulationEngine {
       { x: 17, y: 2, z: 9 }   // Windmill borders
     ];
 
-    if (!v.targetPosition || this.dist3D(v.position, v.targetPosition) < 0.6) {
+    const isAtTarget = v.targetPosition && 
+      this.dist2D(v.position, v.targetPosition) < 0.6 && 
+      Math.abs(v.position.y - v.targetPosition.y) < 1.5;
+
+    if (!v.targetPosition || isAtTarget) {
       const nextPatrol = patrolPoints[Math.floor(Math.random() * patrolPoints.length)];
       this.setPathToTarget(v, nextPatrol);
     }
@@ -905,7 +926,7 @@ export class SimulationEngine {
       const blueprintTarget = SHRINE_BLUEPRINT[currentCompleted];
       v.thought = `Carrying materials to place on block #${currentCompleted + 1}.`;
 
-      if (this.dist3D(v.position, blueprintTarget.pos) < 1.6) {
+      if (this.dist2D(v.position, blueprintTarget.pos) < 1.6 && Math.abs(v.position.y - blueprintTarget.pos.y) < 3.5) {
         // Place brick block in the world grid!
         const b = blueprintTarget.pos;
         if (inBounds(b.x, b.y, b.z)) {
@@ -922,7 +943,7 @@ export class SimulationEngine {
     }
 
     // 2. Otherwise: Builder goes near cottage storage crates (11, 2, 15) to replenish material
-    const materialDepot = { x: 10, y: 2, z: 16 };
+    const materialDepot = { x: 10, y: 2, z: 15 };
     v.state = VillagerState.WANDERING;
     v.thought = 'Heading to the construction supply crates for bricks...';
 
@@ -965,9 +986,10 @@ export class SimulationEngine {
         this.moveEntitySmoothly(v, nextStep, v.speed * 0.2);
       }
     } else if (v.targetPosition) {
-      // Small adjust final gap
-      const dist = this.dist3D(v.position, v.targetPosition);
-      if (dist < 0.5) {
+      // Small adjust final gap (use 2D distance and height tolerance to prevent getting stuck due to offset)
+      const dist2D = this.dist2D(v.position, v.targetPosition);
+      const heightDiff = Math.abs(v.position.y - v.targetPosition.y);
+      if (dist2D < 0.5 && heightDiff < 1.5) {
         v.targetPosition = null;
       } else {
         this.moveEntitySmoothly(v, v.targetPosition, v.speed * 0.15);
