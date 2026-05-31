@@ -1,0 +1,8 @@
+{
+  "name": "Voxel Villager Simulation",
+  "description": "A 3D Minecraft-style voxel simulation containing active villagers (farmers, millers, builders, guards), schedule-based routines, and dynamic weather patterns (rain, snow, sunny, thunderstorm) affecting their behavior.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
